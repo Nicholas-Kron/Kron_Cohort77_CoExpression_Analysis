@@ -1,10 +1,10 @@
-# Kron Cohort 77 Differential Expression Analysis
+# Kron Cohort 77 Co-Expression Analysis
 
-This repository contains all code used for the preparation and analysis of RNA sequencing data from an RNA sequencing time series experiment on *Aplysia californica* sensory neurons in the lab of Dr. Lynne Fieber at the University of Miami Rosenstiel School of Marine and Atmospheric Science.  This repository consists mainly of the R project hierarchy and associated files and scripts used for during this analysis, with inclusion of BASH scripts used raw read processing, cleaning, and mapping-quantification steps on a HPC cluster.
+This repository contains all code used for the preparation and analysis of RNA sequencing data from an RNA sequencing time series experiment on *Aplysia californica* sensory neurons in the lab of Dr. Lynne Fieber at the University of Miami Rosenstiel School of Marine and Atmospheric Science.  This repository consists mainly of the R project hierarchy and associated files and scripts used for during this analysis, with inclusion of BASH scripts used in raw read processing, cleaning, and mapping-quantification steps on a HPC cluster.
 
 
 The associated publication can be found here:  
-Kron NS, Schmale MC and Fieber LA (2020) *Changes in Metabolism and Proteostasis Drive Aging Phenotype in Aplysia californica Sensory Neurons*. Front. Aging Neurosci. 12:573764. doi: 10.3389/fnagi.2020.573764
+//TO ADD
 
 Author: Nicholas Kron - n.kron@umiami.edu  
 Maintainer: Nicholas Kron - n.kron@umiami.edu  
