@@ -1,0 +1,240 @@
+---
+title: "Cohort_77_WGCNA_analysis_Concensus"
+author: "Nick Kron"
+date: "9/26/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<!-- Load Packages -->
+```{r, echo=FALSE, message=FALSE, warning = FALSE}
+
+library(WGCNA)
+
+library(tidyr)
+library(tibble)
+library(dplyr)
+
+```
+
+
+##Load data
+```{r}
+
+### BSC
+lnames = load(file = "../data/r_data/BSC_TOM.R")
+TOM_bsc <- TOM
+
+lnames = load(file = "../data/r_data/PVC_TOM.R")
+TOM_pvc <- TOM
+
+rm(TOM)
+
+nGenes = nrow(TOM_bsc)
+nSets = 2
+
+```
+
+
+
+##TOM
+
+```{r}
+# Initialize an appropriate array to hold the TOMs
+TOM = array(0, dim = c(2, nGenes, nGenes))
+# Calculate TOMs in each individual data set
+
+TOM[1, , ] = TOM_bsc
+TOM[2, , ] = TOM_pvc
+
+rm(TOM_pvc,TOM_bsc)
+```
+
+##Scaling TOM overlap
+```{r}
+# Define the reference percentile
+scaleP = 0.95
+# Set RNG seed for reproducibility of sampling
+set.seed(12345)
+# Sample sufficiently large number of TOM entries
+nSamples = as.integer(1/(1-scaleP) * 1000)
+# Choose the sampled TOM entries
+scaleSample = sample(nGenes*(nGenes-1)/2, size = nSamples)
+TOMScalingSamples = list()
+# These are TOM values at reference percentile
+scaleQuant = rep(1, nSets)
+# Scaling powers to equalize reference TOM values
+scalePowers = rep(1, nSets)
+# Loop over sets
+for (set in 1:nSets){
+  # Select the sampled TOM entries
+  TOMScalingSamples[[set]] = as.dist(TOM[set, , ])[scaleSample]
+  # Calculate the 95th percentile
+  scaleQuant[set] = quantile(TOMScalingSamples[[set]],probs = scaleP, type = 8)
+  # Scale the male TOM
+  if (set>1){scalePowers[set] = log(scaleQuant[1])/log(scaleQuant[set]);TOM[set, ,] = TOM[set, ,]^scalePowers[set]
+  }
+  }
+
+```
+
+##qunatile plot
+```{r}
+
+# For plotting, also scale the sampled TOM entries
+scaledTOMSamples = list()
+for (set in 1:nSets)scaledTOMSamples[[set]] = TOMScalingSamples[[set]]^scalePowers[set]
+# Open a suitably sized graphics window
+sizeGrWindow(6,6)
+pdf(file = "../figures/TOMScaling-QQPlot.pdf", wi = 6, he = 6)
+#qq plot of the unscaled samples
+qqUnscaled = qqplot(TOMScalingSamples[[1]], TOMScalingSamples[[2]], plot.it = TRUE, cex = 0.6
+                    ,xlab = paste("TOM in", "BSC"), ylab = paste("TOM in", "PVC"),
+                    main = "Q-Q plot of TOM", pch = 20)
+# qq plot of the scaled samples
+qqScaled = qqplot(scaledTOMSamples[[1]], scaledTOMSamples[[2]], plot.it = FALSE)
+points(qqScaled$x, qqScaled$y, col = "red", cex = 0.6, pch = 20)
+abline(a=0, b=1, col = "blue")
+legend("topleft", legend = c("Unscaled TOM", "Scaled TOM"), pch = 20, col = c("black", "red"))
+dev.off()
+
+```
+
+##build concensus
+```{r}
+consensusTOM = pmin(TOM[1, , ], TOM[2, , ])
+rm(TOM)
+
+save(consensusTOM, file = "../data/r_data/Consensus_TOM.R")
+```
+
+#clustering
+```{r}
+
+lnames = load(file = "../data/r_data/Consensus_TOM.R")
+
+# Clustering
+consTree = hclust(as.dist(1-consensusTOM), method = "average")
+# We like large modules, so we set the minimum module size relatively high:
+minModuleSize = 30;
+# Module identification using dynamic tree cut:
+unmergedLabels = cutreeDynamic(dendro = consTree, distM = 1-consensusTOM,
+deepSplit = 2, cutHeight = 0.995,
+minClusterSize = minModuleSize,
+pamRespectsDendro = FALSE );
+unmergedColors = labels2colors(unmergedLabels)
+
+
+rm(consensusTOM)
+#save(unmergedColors, unmergedLabels, consTree, file = "Consensus-unmergedCons.R")
+
+
+```
+##check the plot
+```{r}
+pdf(file = "../figures/consensus_dendro_unmerged.pdf", wi = 6, he = 6)
+plotDendroAndColors(consTree, unmergedColors, "Dynamic Tree Cut",
+dendroLabels = FALSE, hang = 0.03,
+addGuide = TRUE, guideHang = 0.05)
+dev.off()
+```
+
+##Build multi-Expr
+```{r}
+lnames = load(file = "../data/r_data/BSC_dataInput.R")
+lnames = load(file = "../data/r_data/PVC_dataInput.R")
+
+nSets = 2
+setLabels = c("BSC", "PVC")
+
+multiExpr = vector(mode = "list", length = nSets)
+
+multiExpr[[1]] = list(data = datExpr_bsc )
+names(multiExpr[[1]]$data) = colnames(datExpr_bsc)
+rownames(multiExpr[[1]]$data) = rownames(datExpr_bsc)
+
+multiExpr[[2]] = list(data = as.data.frame( datExpr_pvc ))
+names(multiExpr[[2]]$data) = colnames(datExpr_pvc)
+rownames(multiExpr[[2]]$data) = rownames(datExpr_pvc)
+
+# multiExpr[[3]] = list(data = as.data.frame( scale(t(greer_voom$E[shared,])) ))
+# names(multiExpr[[3]]$data) = rownames(greer_samples)
+# rownames(multiExpr[[3]]$data) = colnames(greer_voom$E)
+
+# Check that the data has the correct format for many functions operating on multiple sets
+exprSize = checkSets(multiExpr)
+
+
+```
+
+##Loading trait data
+```{r}
+
+load(file = "../data/r_data/All_dataInput.R")
+
+
+
+dim(datTraits)
+names(datTraits)
+
+
+datTraits = datTraits %>% rownames_to_column("Seq_ID") %>% dplyr::select(Seq_ID, Weight, Mean_TTR, Mean_TWRT, Age)
+
+Traits = vector(mode="list", length = nSets);
+for (set in 1:nSets)
+{
+setSamples = rownames(multiExpr[[set]]$data);
+traitRows = match(setSamples, datTraits$Seq_ID);
+Traits[[set]] = list(data = datTraits[traitRows, -1]);
+rownames(Traits[[set]]$data) = as.matrix(datTraits[traitRows, "Seq_ID"])
+}
+
+nGenes = exprSize$nGenes
+nSamples = exprSize$nSamples
+
+save(multiExpr, Traits, nGenes, nSamples, setLabels, exprSize, file = "../data/r_data/Consensus_dataInput.R")
+
+```
+
+
+##merging modules
+```{r}
+# Calculate module eigengenes
+unmergedMEs = multiSetMEs(multiExpr, colors = NULL, universalColors = unmergedColors)
+# Calculate consensus dissimilarity of consensus module eigengenes
+consMEDiss = consensusMEDissimilarity(unmergedMEs);
+# Cluster consensus modules
+consMETree = hclust(as.dist(consMEDiss), method = "average");
+# Plot the result
+pdf(file = "../figures/consensus_eigengenes_unmerged.pdf", wi = 7, he = 6)
+sizeGrWindow(7,6)
+par(mfrow = c(1,1))
+plot(consMETree, main = "Consensus clustering of consensus module eigengenes",
+xlab = "", sub = "")
+abline(h=0.25, col = "red")
+dev.off()
+
+merge = mergeCloseModules(multiExpr, unmergedLabels, cutHeight = 0.25, verbose = 3)
+
+# Numeric module labels
+moduleLabels = merge$colors
+# Convert labels to colors
+moduleColors = labels2colors(moduleLabels)
+# Eigengenes of the new merged modules:
+consMEs = merge$newMEs
+
+pdf(file = "../figures/consensus_eigengenes_merged_vs_unmerged.pdf", wi = 7, he = 6)
+plotDendroAndColors(consTree, cbind(unmergedColors, moduleColors),
+c("Unmerged", "Merged"),
+dendroLabels = FALSE, hang = 0.03,
+addGuide = TRUE, guideHang = 0.05)
+dev.off()
+
+save(consMEs, moduleColors, moduleLabels, consTree, file = "../data/r_data/Consensus_NetworkConstruction_man.R")
+
+#load("../data/r_data/Consensus_NetworkConstruction_man.R")
+```
+

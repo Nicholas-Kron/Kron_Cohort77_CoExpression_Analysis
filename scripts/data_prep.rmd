@@ -1,0 +1,232 @@
+---
+title: "Cohort_77_WGCNA_analysis_PrepData"
+author: "Nick Kron"
+date: "9/25/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+<!-- Load Packages -->
+```{r, echo=FALSE, message=FALSE, warning = FALSE}
+library(ggplot2)
+library(RColorBrewer)
+#library(cowplot)
+library("stringr")
+
+library(tximport)
+library(DESeq2)
+library(WGCNA)
+
+library(tidyr)
+library(tibble)
+library(dplyr)
+
+```
+
+<!-- Define function to exract tx names -->
+```{r, echo=FALSE, message=FALSE, warning = FALSE}
+
+
+
+extract_tx <- function(x){
+  if(typeof(x) == "character"){
+  stringr::str_extract(x, '[NX][MR]_[0-9]+.[0-9]')
+  }
+  else{
+    print('ERROR: input is not a vector of type character')
+  }
+}
+
+```
+
+<!-- Load data -->
+```{r, echo=FALSE, message=FALSE, warning = FALSE}
+samples <- as.data.frame(read.csv("../data/metadata/metadata.csv", header = TRUE, stringsAsFactors = FALSE))
+samples <- samples %>% dplyr::group_by(Tissue) %>% dplyr::arrange(Age, .by_group = TRUE) %>% ungroup()
+samples$Age <- as.factor(samples$Age)
+samples <- samples[! samples$Seq_ID %in% c("P04","P08","P16"),]
+
+
+###Define Tissue Groups
+BSC7 <- as.vector(filter(samples, Tissue == "BSC" & Age == "7")$Seq_ID)
+BSC8 <- as.vector(filter(samples, Tissue == "BSC" & Age == "8")$Seq_ID)
+BSC9 <- as.vector(filter(samples, Tissue == "BSC" & Age == "9")$Seq_ID)
+BSC10 <- as.vector(filter(samples, Tissue == "BSC" & Age == "10")$Seq_ID)
+BSC11 <- as.vector(filter(samples, Tissue == "BSC" & Age == "11")$Seq_ID)
+BSC12 <- as.vector(filter(samples, Tissue == "BSC" & Age == "12")$Seq_ID)
+
+PVC6 <- as.vector(filter(samples, Tissue == "PVC" & Age == "6")$Seq_ID)
+PVC7 <- as.vector(filter(samples, Tissue == "PVC" & Age == "7")$Seq_ID)
+PVC8 <- as.vector(filter(samples, Tissue == "PVC" & Age == "8")$Seq_ID)
+PVC9 <- as.vector(filter(samples, Tissue == "PVC" & Age == "9")$Seq_ID)
+PVC10 <- as.vector(filter(samples, Tissue == "PVC" & Age == "10")$Seq_ID)
+PVC11 <- as.vector(filter(samples, Tissue == "PVC" & Age == "11")$Seq_ID)
+PVC12 <- as.vector(filter(samples, Tissue == "PVC" & Age == "12")$Seq_ID)
+
+BSC <- c(BSC7, BSC8, BSC9, BSC10, BSC11, BSC12)
+PVC <- c(PVC6, PVC7, PVC8, PVC9, PVC10, PVC11, PVC12)
+
+```
+
+
+<!-- Build txi object --->
+```{r, echo=FALSE, message=FALSE, warning = FALSE, include= FALSE}
+
+#set file list
+files<- file.path("../data/salmon_files/",paste(samples$Seq_ID,"quant", sep = "_"), "quant.sf")
+names(files) <- samples$Seq_ID
+
+txi <- tximport(files, type = "salmon", txOut = TRUE)
+rownames(txi$abundance) <- extract_tx(rownames(txi$abundance))
+
+
+TPM <- txi$abundance
+#rownames(TPM) <- extract_tx(rownames(TPM))
+TPM <- TPM[which(rowSums(TPM)>1),]
+
+```
+
+#filter by variance
+```{r}
+library(genefilter)
+
+filt <- genefilter::varFilter(eset= TPM)
+
+```
+
+```{r}
+library(sva)
+library(edgeR)
+
+
+mod <- model.matrix(~ Age + Tissue, data= samples)
+mod0 <- model.matrix(~ Tissue, data=samples)
+svnum <- num.sv(filt, mod, method = "be")
+svobj <- svaseq(filt, mod, mod0, n.sv = svnum)
+samples$sv1 = svobj$sv[,1]
+samples$sv2 = svobj$sv[,2]
+```
+
+```{r}
+
+dds <- DESeqDataSetFromTximport(txi, samples, ~Tissue + Age + sv1 + sv2)
+rownames(dds) <- extract_tx(rownames(dds))
+dds <- dds[rownames(filt),]
+
+#DESeq2::plotPCA(vst(dds, blind = FALSE), intgroup = "Age")
+
+abundances <- assay(vst(dds, blind = FALSE))
+
+```
+
+
+##Put data in proper format
+```{r}
+datExpr0 = as.data.frame(t(abundances))
+names(datExpr0) = rownames(abundances)
+rownames(datExpr0) = colnames(abundances)
+```
+
+##Check to see if all genes are good
+```{r}
+gsg = goodSamplesGenes(datExpr0, verbose = 3)
+gsg$allOK
+```
+
+##check for outliers
+```{r}
+sampleTree = hclust(dist(datExpr0), method = "average");
+# Plot the sample tree: Open a graphic output window of size 12 by 9 inches
+# The user should change the dimensions if the window is too large or too small.
+sizeGrWindow(12,9)
+#pdf(file = "Plots/sampleClustering.pdf", width = 12, height = 9);
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+plot(sampleTree, main = "Sample clustering to detect outliers", sub="", xlab="", cex.lab = 1.5,
+cex.axis = 1.5, cex.main = 2)
+
+datExpr = datExpr0
+nGenes = ncol(datExpr)
+nSamples = nrow(datExpr)
+
+datExpr_bsc = datExpr[BSC,]
+datExpr_pvc = datExpr[PVC,]
+```
+
+##load trait data
+```{r}
+morpho <- read.csv(file = "../data/metadata/AnimalMetadata.csv", stringsAsFactors = FALSE) %>%
+  mutate(Mean_TTR = (TTR1+TTR2+TTR3)/3, 
+         Mean_TWRT = (TWRT1+TWRT2+TWRT3)/3) %>%
+  dplyr::select(Animal_ID, Weight, Mean_TTR, Mean_TWRT)
+
+#add animal phenotype data to sample metadata
+traitData = inner_join(samples,morpho) 
+
+dim(traitData)
+names(traitData)
+
+#convert everything to numerics
+allTraits = traitData %>% ungroup()
+allTraits$Mean_TTR <- as.numeric(allTraits$Mean_TTR)
+allTraits$Tissue <- as.numeric(as.factor(allTraits$Tissue))
+allTraits$Age <- as.numeric(as.character(allTraits$Age))
+
+# Form a data frame analogous to expression data that will hold the clinical traits.
+Samples = rownames(datExpr)
+traitRows = match(Samples, allTraits$Seq_ID)
+datTraits = allTraits[traitRows,]
+datTraits <- datTraits %>% rownames_to_column(var ="rowname") %>% column_to_rownames(var = "Seq_ID") %>% dplyr::select(-c("rowname"))
+
+datTraits_bsc <- datTraits[BSC,]
+datTraits_pvc <- datTraits[PVC,]
+
+```
+
+## Re-cluster samples
+```{r}
+
+plotDendroHM <- function(datExpr, datTraits){
+  sampleTree2 = hclust(dist(datExpr), method = "ward")
+  # Convert traits to a color representation: white means low, red means high, grey means missing entry
+  traitColors = numbers2colors(datTraits, signed = FALSE)
+  # Plot the sample dendrogram and the colors underneath.
+  plotDendroAndColors(sampleTree2, traitColors,
+                      groupLabels = names(datTraits),
+                      main = "Sample dendrogram and trait heatmap")
+}
+
+plotDendroHM(datExpr, datTraits)
+plotDendroHM(datExpr_bsc, datTraits_bsc)
+plotDendroHM(datExpr_pvc, datTraits_pvc)
+
+```
+
+#Save dat for later
+```{r}
+save(datExpr, datTraits, file = "../data/r_data/All_dataInput.R")
+save(datExpr_bsc, datTraits_bsc, file = "../data/r_data/BSC_dataInput.R")
+save(datExpr_pvc, datTraits_pvc, file = "../data/r_data/PVC_dataInput.R")
+
+
+
+write.csv(x = t(datExpr), file = "../data/r_data/Cohort77_vsd.csv")
+write.csv(x = t(datExpr_bsc), file = "../data/r_data/Cohort77_vsd_BSC.csv")
+write.csv(x = t(datExpr_pvc), file = "../data/r_data/Cohort77_vsd_PVC.csv")
+
+
+```
+
+
+
+
+
+
+
+
+
+
