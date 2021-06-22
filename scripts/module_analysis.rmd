@@ -259,7 +259,9 @@ consensusPvalue[positive] = pmax(moduleTraitPvalue[[1]][positive], moduleTraitPv
 
 textMatrix = paste(signif(consensusCor, 2), "\n(",
 signif(consensusPvalue, 1), ")", sep = "");
+textMatrix <-textMatrix %>% str_replace_all(string =., pattern = "NA\\n\\(NA\\)", replacement = "No Concensus")
 dim(textMatrix) = dim(moduleTraitCor[[set]])
+
 
 pdf(file = "../figures/ModuleTraitRelationships_consensus.pdf", wi = 6, he = 6);
 par(mar = c(2, 6, 3, 2.2));
@@ -281,7 +283,7 @@ labeledHeatmap(Matrix = consensusCor,
                )
 dev.off()
 
-pdf(file = "../figures/ModuleTraitRelationships_consensus_Age.pdf", wi = 3, he = 4);
+pdf(file = "../figures/ModuleTraitRelationships_consensus_Age_NC.pdf", wi = 3, he = 4);
 par(mar = c(2, 6, 1, 1));
 labeledHeatmap(Matrix = consensusCor,
                xLabels = names(Traits[[set]]$data),
@@ -305,6 +307,7 @@ dev.off()
 
 
 ```
+
 
 #Get hubs
 ```{r get hubs}
@@ -471,7 +474,9 @@ lapply(modNames, function(x){
   ##module specific genes
   mm <- data.frame(
     membership = geneModuleMembership[moduleGenes, paste0("MM",x)],
-    pvalue = MMPvalue[moduleGenes, paste0("p.MM",x)]
+    MM_pvalue = MMPvalue[moduleGenes, paste0("p.MM",x)],
+    TAS = geneTraitSignificance[moduleGenes, "GS.Age"],
+    TAS_pvalue = GSPvalue[moduleGenes, "p.GS.Age"]
   )
   rownames(mm) <- rownames(geneModuleMembership[moduleGenes,])
   mm <- mm %>% rownames_to_column(var = "tx")

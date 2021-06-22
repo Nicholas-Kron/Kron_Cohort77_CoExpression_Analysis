@@ -1,0 +1,595 @@
+---
+title: "build_mapping_file"
+author: "Nick Kron"
+date: "11/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load packages, echo=FALSE,message=FALSE,error=FALSE}
+library(tidyverse)
+```
+
+
+```{r load in raw data, echo=FALSE,message=FALSE,error=FALSE}
+
+# oysterGFF_v9 <- read.table(file = "../data/annotation/GCA_000297895.1_oyster_v9_genomic.gff", header = FALSE, stringsAsFactors = FALSE, comment.char = "#", sep = "\t")
+# colnames(oysterGFF_v9) <- c("seqid","source","type","start","end","score","strand","phase","attributes")
+# 
+# CgigasGFF_v1 <- read.table(file = "../data/annotation/GCF_902806645.1_cgigas_uk_roslin_v1_genomic.gff", header = FALSE, stringsAsFactors = FALSE, comment.char = "#", sep = "\t") 
+# colnames(CgigasGFF_v1) <- c("seqid","source","type","start","end","score","strand","phase","attributes")
+
+
+# oysterGFF_v9.49 <- read.table(file = "../data/annotation/Crassostrea_gigas.oyster_v9.49.gff3", header = FALSE, stringsAsFactors = FALSE, comment.char = "#", sep = "\t")
+# colnames(oysterGFF_v9.49) <- c("seqid","source","type","start","end","score","strand","phase","attributes")
+
+oysterGFF_v9.49 <- read.table(
+    file = "../data/annotation/Crassostrea_gigas.oyster_v9.49.gff3",
+    header = FALSE,
+    stringsAsFactors = FALSE,
+    #comment.char = "",
+    skip = 8,
+    strip.white = TRUE, 
+    blank.lines.skip = TRUE, 
+    flush = TRUE,
+    fill = FALSE,
+    quote = "",
+    sep = "\t"
+  )  %>% `colnames<-` (c(
+    "seqid",
+    "source",
+    "type",
+    "start",
+    "end",
+    "score",
+    "strand",
+    "phase",
+    "attributes"
+  ))
+
+head(oysterGFF_v9.49 %>% filter(type == "mRNA"))[,9]
+
+oysterGFF_v9.49$type %>% unique()
+
+```
+
+```{r build C.gigas gene to protein mapping file, echo=FALSE,message=FALSE,error=FALSE, include=FALSE}
+
+#ID=rna-gnl|WGS:AFTI|mrna.CGI_10000780;Parent=gene-CGI_10000780;
+
+
+# oyster_gene2protein <- oysterGFF_v9 %>% filter(type == "CDS") %>% 
+#   select(attributes) %>%
+#   extract(
+#     data = .,
+#     col = attributes,
+#     into = c("Parent_mRNA","protein_id","locus_tag","product"),
+#     regex = ".*;Parent=([^;]*);.*;Name=([^;]*);.*;locus_tag=([^;]*);.*;product=([^;]*);.*"
+#   ) %>%
+#   mutate(product=str_replace(product, pattern = "%2C", replacement = ",")) %>% unique() 
+
+oyster_gene2protein <- oysterGFF_v9.49 %>% filter(type == "mRNA") %>%
+  select(attributes) %>%
+  extract(
+    data = .,
+    col = attributes,
+    into = c("Cgig_prot","Cgig_gene"),
+    regex = "ID=transcript:([^;]*);Parent=gene:([^;]*);biotype=[^;]*;transcript_id=[^;]*"
+  ) %>% unique()
+
+
+save(oyster_gene2protein, file = "../data/r_data/oyster_gene2protein.R") 
+
+
+```
+
+```{r load in build C.gigas mapping file, echo=FALSE,message=FALSE,error=FALSE}
+
+load(file = "../data/r_data/oyster_gene2protein.R") 
+
+```
+
+
+```{r load in Aplysia to Cgigas mapping file, echo=FALSE,message=FALSE,error=FALSE}
+
+AplCal2Cgigas <- read.table(file = "../data/annotation/AplCal3.0prot2Cgigas9prot.txt", header = FALSE, sep = "\t", stringsAsFactors = FALSE, strip.white = TRUE)
+
+colnames(AplCal2Cgigas) <- c("qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue", "bitscore")
+
+AplCal2Cgigas <- AplCal2Cgigas %>% filter(evalue <= 1e-3)
+
+head(AplCal2Cgigas)
+
+AplCal2Cgigas <- AplCal2Cgigas %>%
+  mutate(prot_version = qseqid,
+         prot = str_remove(qseqid, "[.][0-9]"),
+         Cgig_prot = sseqid) %>%
+ # select(prot,prot_version, Cgig_prot) %>%
+  unique()
+
+
+AplCal2Cgigas$Cgig_prot %>% unique() %>% length()
+AplCal2Cgigas$Cgig_prot %>% length()
+
+```
+
+```{r anotate Aplysia to C gigas mapping with transcript information, echo=FALSE,message=FALSE,error=FALSE}
+
+load("../data/r_data/AplCalGFF3v1.21_Tabular.R")
+
+AplCal2Cgigas <- AplCal2Cgigas %>% inner_join(Complete_AplCal_map) %>% unique
+
+AplCal2Cgigas <- AplCal2Cgigas %>% inner_join(oyster_gene2protein) %>% unique
+
+
+```
+
+
+```{r compare how well the mapping is captured, echo=FALSE,message=FALSE,error=FALSE}
+
+length(oyster_gene2protein$Cgig_prot %>% unique()) #26004
+length(AplCal2Cgigas$Cgig_prot %>% unique()) #8819
+intersect(oyster_gene2protein$Cgig_prot, AplCal2Cgigas$Cgig_prot) %>% length() #8819
+setdiff(oyster_gene2protein$Cgig_prot, AplCal2Cgigas$Cgig_prot) %>% head()
+
+intersect(AplCal2Cgigas$Cgig_prot, oyster_gene2protein$Cgig_prot) %>% length() #8819
+setdiff(AplCal2Cgigas$Cgig_prot, oyster_gene2protein$Cgig_prot) %>% head() #0
+
+```
+
+
+```{r get Lafont DE overlap genes with evalues}
+
+
+module2lafontGOI %>%
+  inner_join(rbind(
+read.csv(file =  "../results/MM/consensus_moduleMembership_greenyellow.csv", header = TRUE, stringsAsFactors = FALSE) %>% mutate(module = "greenyellow"),
+read.csv(file ="../results/MM/consensus_moduleMembership_darkgreen.csv", header = TRUE, stringsAsFactors = FALSE) %>% mutate(module = "darkgreen"),
+read.csv(file = "../results/MM/consensus_moduleMembership_pink.csv", header = TRUE, stringsAsFactors = FALSE) %>% mutate(module = "pink")
+) %>% select(tx, module, membership, Gene_names, Protein_names)%>%
+  mutate(tx = str_remove(tx, "[.][012 -]+") )) %>% arrange(Gene_names) %>%
+  select(Gene_names, module, padj_bsc, padj_pvc, tx, prot, product)
+
+
+
+
+```
+
+
+##Look at immune associated genes from Lafont in context of modules
+
+```{r Lafont data, echo=FALSE,message=FALSE,error=FALSE, include=FALSE}
+
+Lafont2020_postchallenge <- read.csv(file = "../data/Lafont_et_al_2020_DE_postchallenge.csv", header = FALSE, stringsAsFactors = FALSE, skip = 3) 
+
+cn <- c("ID","pattern", "log2FC","RPKM","BestBlastHit","antimicrobial_activity","pathways","GO_terms","days_post_prime","condition", "comparison") 
+
+Lafont2020_postchallenge_long <- rbind(
+Lafont2020_postchallenge[,c(1:4, 24:27)] %>% mutate(days_post_prime = "0.5", condition = "poly(I:C) priming", comparison = "Priming poly(I:C)/T0") %>% `colnames<-` (cn),
+Lafont2020_postchallenge[,c(1,2,5,6,24:27)] %>% mutate(days_post_prime = "1", condition = "poly(I:C) priming",comparison = "Priming poly(I:C)/T0") %>% `colnames<-` (cn),
+Lafont2020_postchallenge[,c(1,2,7,8,24:27)] %>% mutate(days_post_prime = "10", condition = "poly(I:C) priming",comparison = "Priming poly(I:C)/T0") %>% `colnames<-` (cn),
+Lafont2020_postchallenge[,c(1,2,9,10,24:27)] %>% mutate(days_post_prime = "0.5", condition = "poly(I:C) priming",comparison = "Challenge Poly(I:C)+OsHV-1/10DPP") %>% `colnames<-` (cn),
+Lafont2020_postchallenge[,c(1,2,11,12,24:27)] %>% mutate(days_post_prime = "1", condition = "poly(I:C) priming",comparison = "Challenge Poly(I:C)+OsHV-1/10DPP") %>% `colnames<-` (cn),
+Lafont2020_postchallenge[,c(1,13,14,15,24:27)] %>% mutate(days_post_prime = "0.5", condition = "FSW control",comparison = "Priming FSW/T0") %>% `colnames<-` (cn),
+Lafont2020_postchallenge[,c(1,13,16,17,24:27)] %>% mutate(days_post_prime = "1", condition = "FSW control",comparison = "Priming FSW/T0") %>% `colnames<-` (cn),
+Lafont2020_postchallenge[,c(1,13,18,19,24:27)] %>% mutate(days_post_prime = "10", condition = "FSW control",comparison = "Priming FSW/T0") %>% `colnames<-` (cn),
+Lafont2020_postchallenge[,c(1,13,20,21,24:27)] %>% mutate(days_post_prime = "0.5", condition = "FSW control",comparison = "Challenge FSW+OsHV-1/10DPP") %>% `colnames<-` (cn),
+Lafont2020_postchallenge[,c(1,13,22,23,24:27)] %>% mutate(days_post_prime = "1", condition = "FSW control",comparison = "Challenge FSW+OsHV-1/10DPP") %>% `colnames<-` (cn)
+) %>% select(ID, days_post_prime, condition, comparison, pattern, log2FC, RPKM, BestBlastHit, antimicrobial_activity, pathways,GO_terms)
+
+
+Lafont2020_postchallenge_long$ID %>% unique() %>% length()
+oyster_gene2protein$locus_tag %>% unique %>% length()
+
+intersect(Lafont2020_postchallenge_long$ID, oyster_gene2protein$locus_tag) %>% length()
+
+Lafont2020_postchallenge_long %>% select(ID) %>% unique() %>% filter( ! ID %in% oyster_gene2protein$locus_tag) %>% nrow()
+Lafont2020_postchallenge_long %>% select(ID) %>% unique() %>% filter( ID %in% oyster_gene2protein$locus_tag) %>% nrow()
+
+rbind(
+read.csv(file = "../data/Lafont_et_al_2020_PolyIC_DE_05DPP_PIC_vs_FSW.csv", header = TRUE, stringsAsFactors = FALSE) %>% 
+  mutate(days_post_prime = 0.5 ),
+read.csv(file = "../data/Lafont_et_al_2020_PolyIC_DE_1DPP_PIC_vs_FSW.csv", header = TRUE, stringsAsFactors = FALSE) %>% 
+  mutate(days_post_prime = 1 ),
+read.csv(file = "../data/Lafont_et_al_2020_PolyIC_DE_10DPP_PIC_vs_FSW.csv", header = TRUE, stringsAsFactors = FALSE) %>% 
+  mutate(days_post_prime = 10 )
+)
+
+read.csv(file = "../data/Lafont_et_al_2020_PolyIC_DE_compiled_list.csv", header = TRUE, stringsAsFactors = FALSE) %>% nrow()
+intersect(oyster_gene2protein$locus_tag, 
+(read.csv(file = "../data/Lafont_et_al_2020_PolyIC_DE_compiled_list.csv", header = TRUE, stringsAsFactors = FALSE))$gene.ID
+) %>% length()
+
+
+
+
+```
+
+
+```{r convert LaFont to long format}
+
+
+Lafont2020_postchallenge_long %>% filter(log2FC > 1)
+
+length(Lafont2020_postchallenge_long$ID %>% unique()) #1587
+intersect(Lafont2020_postchallenge_long$ID, oyster_gene2protein$Cgig_gene) %>% length() #1491
+intersect(Lafont2020_postchallenge_long$ID, AplCal2Cgigas$Cgig_gene) %>% length() #797
+
+```
+
+
+```{r bring in WGCNA modules and test enrichment of modules for LaFont DE genes}
+
+load(file = "../data/r_data/Consensus_NetworkConstruction_man.R")
+load(file = "../data/r_data/Consensus_dataInput.R")
+
+moduletx <- data.frame(tx = colnames(multiExpr[[1]]$data), module = moduleColors) %>%
+  mutate(tx_version = tx, tx = str_remove(tx, "[.][0-9]+"))
+
+
+module_LaFont_intersect <- AplCal2Cgigas %>% 
+  inner_join(moduletx %>% select(-tx_version)) %>%
+  #select(tx) %>% unique() %>% nrow()
+  inner_join(Lafont2020_postchallenge_long %>% 
+               filter(pattern %in% c("challenge specific",
+                                     "priming specific",
+                                     "recall",
+                                     "recall opposite",
+                                     "sustained") ) %>%
+               select(ID, pattern) %>% unique(), by = c("Cgig_gene" = "ID")) %>%
+  #left_join(AcTxAnot %>% select(tx, Gene_names) %>% mutate(tx_version = tx, tx = str_remove(tx, "[.][0-9]+")) %>% select(-tx_version)) %>%
+  #filter(module %in% c("pink","orange","darkgreen","greenyellow")) %>%
+  #arrange(pattern, module) %>%
+  #write.table(., file = "../results/LaFont_Modules_intersect.tab", sep = "\t",row.names = FALSE, quote = FALSE)
+  select(tx,module) %>% unique()
+  filter(module == "darkgreen") %>% 
+  summarise (count = n())
+
+  Lafont2020_postchallenge_long %>% 
+               filter(pattern %in% c("challenge specific",
+                                     "priming specific",
+                                     "recall",
+                                     "recall opposite",
+                                     "sustained") ) %>%
+               select(ID, pattern) %>% unique() %>%
+              select(ID) %>% unique() %>% nrow()
+  
+  
+
+
+lapply(moduletx$module %>% unique(), FUN = function(x){
+  
+  z <- (module_LaFont_intersect %>% 
+  filter(module == x) %>% 
+  summarise (count = n()))$count
+  k <- (AplCal2Cgigas %>% 
+  inner_join(moduletx %>% 
+               select(-tx_version)) %>%
+  filter(module == x) %>% summarise(count = n()))$count
+  m <- 697
+  n <- 6662
+  prob <- dhyper(x=0:k,
+       m = m,
+       n = n,
+       k = k)
+  p <- sum(prob[(z-1):k])
+  data.frame(k=k,x=z,p=p,module=x)
+  
+}) %>% do.call("rbind",.)
+
+
+```
+
+
+```{r modules of interst gene overlap with orthologs}
+
+
+MoI_LaFont_genes <- AplCal2Cgigas %>% select(prot_version, prot, Cgig_prot, evalue) %>%
+  inner_join(oyster_gene2protein) %>%
+  inner_join(Lafont2020_postchallenge_long %>% filter(log2FC >=1) %>% 
+   filter(pattern %in% c("challenge specific","priming specific","recall","recall opposite","sustained")) %>%
+  select(ID, BestBlastHit, antimicrobial_activity, pathways) %>%
+  unique(),
+  by = c("Cgig_gene" = "ID")) %>%
+  inner_join(Complete_AplCal_map %>% select(-type)) %>%
+  inner_join(moduletx %>% select(tx, module)) %>%
+  filter(module %in% c("greenyellow", "darkgreen","pink")) %>%
+  unique() %>%
+  distinct(prot,module, .keep_all = TRUE) %>%
+  inner_join(
+    lapply(X = c("greenyellow","darkgreen","pink"), FUN = function(x){
+read.csv(paste0("../data/annotation/consensus_moduleMembership_",x,".csv")) %>% select(-X) %>% rename(tx_version = "tx") %>%
+  arrange(desc(membership))%>%
+  unique()   %>%
+  mutate(tx = str_remove(tx_version, "[.][0-9 -]*"),
+         module = x)
+}
+) %>% do.call("rbind",.) %>%
+  filter(membership >=0.7) %>%
+  select(module, tx, membership, Gene_names, Protein_names)
+  ) %>%
+  select(module, tx, Cgig_gene, evalue,membership, antimicrobial_activity, pathways, Gene_names, Protein_names) %>%
+  arrange(Gene_names)
+
+
+write.csv(MoI_LaFont_genes,"../results/LaFont_SigOverlap_tx_point7.csv",quote = FALSE,row.names = FALSE)
+
+
+```
+
+```{r build module specific tx sets}
+
+Lafont2020_postchallenge_long$pattern %>% unique()
+
+challenge_specific <- (Lafont2020_postchallenge_long %>% 
+  select(pattern, ID) %>%
+  unique() %>% filter(pattern == "challenge specific"))$ID
+
+priming_specific <- (Lafont2020_postchallenge_long %>% 
+  select(pattern, ID) %>%
+  unique() %>% filter(pattern == "priming specific"))$ID
+
+recall <- (Lafont2020_postchallenge_long %>% 
+  select(pattern, ID) %>%
+  unique() %>% filter(pattern == "recall"))$ID
+
+recall_opposite<- (Lafont2020_postchallenge_long %>% 
+  select(pattern, ID) %>%
+  unique() %>% filter(pattern == "recall opposite"))$ID
+  
+sustained <- (Lafont2020_postchallenge_long %>% 
+  select(pattern, ID) %>%
+  unique() %>% filter(pattern == "sustained"))$ID
+
+pink <- inner_join(moduletx %>% select(tx, module),
+                        AplCal2Cgigas %>% select(tx, Cgig_gene)) %>%
+  filter(module == "pink")
+
+orange <- inner_join(moduletx %>% select(tx, module),
+                        AplCal2Cgigas %>% select(tx, Cgig_gene)) %>%
+  filter(module == "orange")
+
+greenyellow <- inner_join(moduletx %>% select(tx, module),
+                        AplCal2Cgigas %>% select(tx, Cgig_gene)) %>%
+  filter(module == "greenyellow")
+
+darkgreen <- inner_join(moduletx %>% select(tx, module),
+                        AplCal2Cgigas %>% select(tx, Cgig_gene)) %>%
+  filter(module == "darkgreen")
+
+royalblue <- inner_join(moduletx %>% select(tx, module),
+                        AplCal2Cgigas %>% select(tx, Cgig_gene)) %>%
+  filter(module == "royalblue")
+
+venn::venn(x =list(challenge_specific, priming_specific, recall, recall_opposite, sustained, pink$Cgig_gene),
+           ellipse = FALSE,
+           snames = c("challenge specific", "priming specific", "recall", "recall opposite", "sustained", "pink module"),
+           ilabels = FALSE,
+           ggplot = TRUE)
+
+overlap <- lapply(list(royalblue,pink,orange,darkgreen,greenyellow),
+       FUN = function(x){
+         lapply(list(challenge_specific, priming_specific, recall, recall_opposite, sustained),
+       FUN = function(y){
+         length(intersect(y, x$Cgig_gene))
+       })
+       }) %>%
+  do.call("rbind",.)
+overlap = rbind(lapply(list(challenge_specific, priming_specific, recall, recall_opposite, sustained),
+       FUN = function(y){
+         length(y)
+       }), overlap )
+overlap = cbind(c(0,lapply(list(royalblue,pink,orange,darkgreen,greenyellow),
+       FUN = function(x){
+         nrow(x)})), overlap )
+rownames(overlap) =  c("total","royalblue","pink","orange","darkgreen","greenyellow")
+colnames(overlap) = c("total","challenge_specific", "priming_specific", "recall", "recall_opposite","sustained")
+
+
+```
+
+```{r isolate genes in modules that are also in LaFont}
+
+load("../data/r_data/AplCalGFF3v1.21_Tabular.R")
+colnames(Lafont2020_postchallenge_long)
+Lafont2020_postchallenge_long$comparison %>% unique()
+
+
+lapply(X = c("greenyellow","darkgreen","pink"), FUN = function(x){
+module_LaFont_intersect %>% filter(module == x) %>% 
+  inner_join(AplCal2Cgigas %>% select(tx, Cgig_gene)) %>%
+  inner_join(.,
+                           Lafont2020_postchallenge_long %>%
+               filter(comparison %in% c(
+                 "Challenge Poly(I:C)+OsHV-1/10DPP",
+                 "Challenge FSW+OsHV-1/10DPP",
+                 "Priming poly(I:C)/T0"
+               )),
+  # select(ID, pattern, condition, log2FC,BestBlastHit, antimicrobial_activity, pathways),
+  by = c("Cgig_gene" = "ID")) %>%
+  left_join(.,AcTxAnot %>% select(tx, prot, product, Gene_names, Protein_names) %>%
+  mutate(tx_version = tx,
+         tx = str_remove(tx, "[.][0-9 -]*"),
+         module = x)) %>%
+  # select(module,tx_version, Cgig_gene, log2FC,BestBlastHit, Gene_names, Protein_names, antimicrobial_activity, pathways) %>%
+  inner_join(.,
+             read.csv(
+               paste0("../data/annotation/consensus_moduleMembership_",x,".csv")) %>% select(-X) %>% rename(tx_version = "tx") )%>%
+  arrange(desc(membership))%>%
+  unique()
+}
+) %>% do.call("rbind",.) -> MoI_LaFont_genes
+
+MoI_LaFont_genes %>% filter(module == "pink")
+
+MoI_LaFont_genes %>% filter(membership >= .8)
+MoI_LaFont_genes %>% filter(log2FC >= 1) %>%
+  filter(membership >= 0.7) %>%
+  select(-c("Entry","tx","product","prot","GO_terms",
+            "BestBlastHit","RPKM")) %>%
+  select(module, tx_version, membership, MM_pvalue, TAS, TAS_pvalue,
+         Gene_names, Protein_names, everything()) %>%
+  select(-c("days_post_prime","condition","log2FC","comparison","pattern")) %>%
+  unique()
+
+write.csv(MoI_LaFont_genes, "../results/LaFont_SigOverlap_tx.csv", quote = FALSE,row.names = FALSE)
+
+write.csv(
+  MoI_LaFont_genes %>% filter(log2FC >= 1) %>%
+  filter(membership >= 0.7) %>%
+  select(-c("Entry","tx","product","prot","GO_terms",
+            "BestBlastHit","RPKM")) %>%
+  select(module, tx_version, membership, MM_pvalue, TAS, TAS_pvalue,
+         Gene_names, Protein_names, everything()) %>%
+  select(-c("days_post_prime","condition","log2FC","comparison","pattern")) %>%
+  unique(), 
+  "../results/LaFont_SigOverlap_tx_point7.csv", 
+  quote = FALSE,row.names = FALSE)
+
+
+Lafont2020_postchallenge
+
+read.csv("../results/LaFont_SigOverlap_tx_point8.csv") %>%
+  select(module, tx_version, Cgig_gene, Gene_names)%>%
+  mutate(tx = str_remove(tx_version, "[.][012 -]+")) %>%
+  inner_join(Complete_AplCal_map %>% select(tx, prot)) %>%
+  left_join(AplCal2Cgigas %>% select(prot, evalue,Cgig_prot)) %>%
+  unique() %>% 
+  select(evalue, tx, Gene_names, everything())
+
+```
+
+
+##DE overlap between Kron et al 2020 and Lafont et al 2020
+
+```{r load Lafont post PIC priming and select only LFC of 2 sig genes}
+
+LaFontGOI <- read.csv(file = "../data/annotation_data/Lafont_et_al_2020_PolyIC_DE_10DPP_PIC_vs_FSW.csv", header = TRUE, stringsAsFactors = FALSE) %>% filter(log2FC >= 1) #204 genes
+intersect(LaFontGOI$gene.ID, oyster_gene2protein$Cgig_gene) %>% length() #190 have a protein mapping in the GFF
+intersect(LaFontGOI$gene.ID, AplCal2Cgigas$Cgig_gene) %>% length() #19 ahve Aplysia orthologs of e <= 1e-20
+
+```
+
+
+```{r compare poilyIC primed DE genes with those of aging in Aplysia SN}
+
+
+load("../data/r_data/res.bsc.R")
+res.bsc <- res.bsc %>% rownames_to_column("tx_version")%>%
+  mutate(tx = str_remove(tx_version, "[.][0-9]+"))
+load("../data/r_data/res.pvc.R")
+res.pvc <- res.pvc %>% rownames_to_column("tx_version") %>%
+  mutate(tx = str_remove(tx_version, "[.][0-9]+"))
+
+pvc_up <- read.delim(file = "../data/annotation_data/PVC_tx_results.tab", 
+           header = TRUE, sep = "\t") %>%
+  mutate(tx_version = tx, tx= str_remove(tx_version, "[.][0-9]+")) %>%
+  filter(direction == "UP") %>%
+  select(tx, cluster, direction) %>%
+  full_join(res.pvc %>% select(tx,padj))
+bsc_up <- read.delim(file = "../data/annotation_data/BSC_tx_results.tab", 
+           header = TRUE, sep = "\t") %>%
+  mutate(tx_version = tx, tx = str_remove(tx_version, "[.][0-9]+")) %>%
+  filter(direction == "UP") %>%
+  full_join(res.bsc %>% select(tx,padj)) %>%
+  select(tx, padj, cluster, direction)
+
+
+
+oyster_gene2protein %>% right_join(LaFontGOI, by = c("Cgig_gene"="gene.ID")) %>%
+left_join(AplCal2Cgigas %>% select(gene, tx, prot, Cgig_prot, Cgig_gene, evalue)) %>%
+  unique() %>%
+  filter(evalue <= 1E-20) %>%
+  left_join(
+    full_join(bsc_up, pvc_up, by = "tx", suffix = c("_bsc", "_pvc"))
+    )%>%
+  select(log2FC, p.value,Cgig_gene, Cgig_prot, evalue,prot, tx, gene, padj_bsc,cluster_bsc, direction_bsc, padj_pvc,cluster_pvc, direction_pvc) %>%
+    distinct(Cgig_gene, .keep_all = TRUE) %>%
+  arrange(evalue) %>%
+  write.csv(file = "../results/Lafont_2020_vs_Kron_2020.csv")
+
+
+```
+
+
+```{r significance test of overlap}
+
+m = 320
+N = 8818
+n = N-m
+k = 83
+x = 2
+phyper(q=x -1, m=m, n=n, k=k, lower.tail=FALSE)
+
+596-117
+
+
+
+
+LaFontGOI %>%
+  inner_join(AplCal2Cgigas %>% filter(evalue < 1e-20) %>% distinct(Cgig_gene), by = c("gene.ID" = "Cgig_gene")) %>%nrow()
+res.pvc
+
+AplCal2Cgigas %>% filter(evalue < 1e-20) %>% distinct(Cgig_gene,tx) %>% inner_join(
+read.delim(file = "../data/annotation_data/PVC_tx_results.tab", 
+           header = TRUE, sep = "\t") %>%
+  mutate(tx_version = tx, tx = str_remove(tx, "[.][0-9]+")) %>%
+  filter(direction == "UP")
+) %>% unique()
+  
+
+AplCal2Cgigas %>% filter(evalue < 1e-20) %>% distinct(Cgig_gene,tx) %>% inner_join(
+read.delim(file = "../data/annotation_data/BSC_tx_results.tab", 
+           header = TRUE, sep = "\t") %>%
+  mutate(tx_version = tx, tx = str_remove(tx, "[.][0-9]+")) %>%
+  filter(direction == "UP")
+) %>% unique()
+
+write_delim(x = AplCal2Cgigas, path = "../results/AplCal3_to_oyster_v9.49.tab", delim = "\t")
+
+```
+
+```{r look at represenation of DE genes from Kron et al 2020 in key modules}
+
+all_res <- full_join(
+  read.delim(file = "../data/annotation_data/PVC_tx_results.tab", 
+           header = TRUE, sep = "\t") %>%
+  mutate(tx_version = tx, tx = str_remove(tx_version, "[.][0-9]+")) %>%
+  select(tx, cluster, direction, padj)
+,
+read.delim(file = "../data/annotation_data/BSC_tx_results.tab", 
+           header = TRUE, sep = "\t") %>%
+  mutate(tx_version = tx, tx = str_remove(tx_version, "[.][0-9]+")) %>%
+  select(tx, cluster, direction, padj),
+by = "tx", suffix = c("_pvc","_bsc")
+)
+
+
+
+
+
+rbind(
+read.csv(file =  "../results/MM/consensus_moduleMembership_royalblue.csv", header = TRUE, stringsAsFactors = FALSE) %>% mutate(module = "royalblue"),
+read.csv(file ="../results/MM/consensus_moduleMembership_orange.csv", header = TRUE, stringsAsFactors = FALSE) %>% mutate(module = "orange"),
+read.csv(file = "../results/MM/consensus_moduleMembership_pink.csv", header = TRUE, stringsAsFactors = FALSE) %>% mutate(module = "pink"),
+read.csv(file = "../results/MM/consensus_moduleMembership_darkgreen.csv", header = TRUE, stringsAsFactors = FALSE) %>% mutate(module = "darkgreen"),
+read.csv(file = "../results/MM/consensus_moduleMembership_greenyellow.csv", header = TRUE, stringsAsFactors = FALSE) %>% mutate(module = "greenyellow")
+) %>% select(tx, module, membership, Gene_names, Protein_names) %>%
+  filter(membership >= 0.7) %>%
+  mutate(tx = str_remove(tx, "[.][012 -]+") ) %>% 
+  unique() %>%
+  inner_join(
+    all_res
+    ) %>%
+  select(Gene_names,tx, direction_bsc, direction_pvc, module, membership, padj_bsc, padj_pvc) %>%
+    arrange(module, desc(membership)) %>%
+  filter(padj_bsc <= 0.01 | padj_pvc <= 0.01) %>%
+  filter(direction_bsc != "NA" | direction_pvc != "NA")
+
+
+
+```
+
