@@ -4,7 +4,7 @@ This repository contains all code used for the preparation and analysis of RNA s
 
 
 The associated publication can be found here:  
-//TO ADD
+https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0252647
 
 Author: Nicholas Kron - n.kron@umiami.edu  
 Maintainer: Nicholas Kron - n.kron@umiami.edu  
